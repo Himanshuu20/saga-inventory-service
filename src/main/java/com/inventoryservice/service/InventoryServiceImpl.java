@@ -11,8 +11,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.inventoryservice.dao.InventoryDao;
 import com.inventoryservice.dto.InventoryDto;
 import com.inventoryservice.entities.Inventory;
-import com.inventoryservice.enums.InventoryStatus;
-import com.inventoryservice.events.InventoryEvent;
+import com.inventoryservice.enums.Status;
+import com.inventoryservice.events.Event;
 import com.inventoryservice.events.OrderEvent;
 import com.inventoryservice.exception.InventoryException;
 import com.inventoryservice.exception.LimitExceededException;
@@ -37,7 +37,7 @@ public class InventoryServiceImpl implements InventoryService{
     @Autowired
     private MapperUtils mapperUtils;
     @Autowired
-    private KafkaTemplate<String, InventoryEvent> kafkaTemplate;
+    private KafkaTemplate<String, Event> kafkaTemplate;
 
     @Override
     public InventoryDto getInventoryById(String inventoryId) throws InventoryException {
@@ -105,32 +105,32 @@ public class InventoryServiceImpl implements InventoryService{
     @KafkaListener(topics = "new-orders", groupId = "orders-group")
     public void consumeOrderEvent(String event) throws OutOfStockException, LimitExceededException, JsonProcessingException {
         log.info("consume data of order event from kafka {}", event);
-        InventoryEvent inventoryEvent = new InventoryEvent();
-        OrderEvent orderEvent = new ObjectMapper().readValue(event, OrderEvent.class);
-        Optional<Inventory> item = inventoryDao.getItemByName(orderEvent.getName());
+        Event inventoryEvent = new Event();
+        Event consumeOrderEventObject = new ObjectMapper().readValue(event, Event.class);
+        Optional<Inventory> item = inventoryDao.getItemByName(consumeOrderEventObject.getOrderEvent().getName());
 
         if(item.isEmpty()){
             log.info("Item is not present in the inventory");
-            inventoryEvent.setStatus(InventoryStatus.OUT_OF_STOCK);
-            inventoryEvent.setOrderEvent(orderEvent);
+            inventoryEvent.setStatus(Status.OUT_OF_STOCK);
+            inventoryEvent.setOrderEvent(consumeOrderEventObject.getOrderEvent());
             kafkaTemplate.send("reversed-orders",inventoryEvent);
             throw new OutOfStockException("Item is not present in the inventory.");
         }
 
-        if(orderEvent.getQuantity() > item.get().getQuantity()){
+        if(consumeOrderEventObject.getOrderEvent().getQuantity() > item.get().getQuantity()){
             log.info("Full quantity is not available in the inventory, number of unit present are {} ", item.get().getQuantity());
-            inventoryEvent.setStatus(InventoryStatus.LIMIT_EXCEEDED);
-            inventoryEvent.setOrderEvent(orderEvent);
+            inventoryEvent.setStatus(Status.LIMIT_EXCEEDED);
+            inventoryEvent.setOrderEvent(consumeOrderEventObject.getOrderEvent());
             kafkaTemplate.send("reversed-orders",inventoryEvent);
             throw new LimitExceededException("Full quantity is not available in the inventory, number of unit present are : " + item.get().getQuantity());
         }
 
-        item.get().setQuantity(item.get().getQuantity() - orderEvent.getQuantity());
+        item.get().setQuantity(item.get().getQuantity() - consumeOrderEventObject.getOrderEvent().getQuantity());
         Inventory itemStockUpdated = inventoryDao.save(item.get());
         log.info("updating the stock count {}",itemStockUpdated);
 
-        inventoryEvent.setStatus(InventoryStatus.INVENTORY_UPDATED);
-        inventoryEvent.setOrderEvent(orderEvent);
+        inventoryEvent.setStatus(Status.INVENTORY_UPDATED);
+        inventoryEvent.setOrderEvent(consumeOrderEventObject.getOrderEvent());
         kafkaTemplate.send("new-payments",inventoryEvent);
         log.info("produce inventory event data to the payment service");
     }
@@ -139,12 +139,12 @@ public class InventoryServiceImpl implements InventoryService{
     @KafkaListener(topics = "reversed-inventory", groupId = "inventory-group")
     public void reverseInventory(String event) throws JsonProcessingException {
         log.info("Inventory reversed  {}",event);
-        InventoryEvent inventoryEvent = new ObjectMapper().readValue(event,InventoryEvent.class);
+        Event inventoryEvent = new ObjectMapper().readValue(event, Event.class);
         Inventory item = inventoryDao.getItemByName(inventoryEvent.getOrderEvent().getName()).get();
         log.info("item fetched from db {}", item);
         item.setQuantity(item.getQuantity() + inventoryEvent.getOrderEvent().getQuantity());
         inventoryDao.save(item);
-        inventoryEvent.setStatus(InventoryStatus.PAYMENT_FAILED);
+//        inventoryEvent.setStatus(InventoryStatus.PAYMENT_FAILED);
         kafkaTemplate.send("reversed-orders", inventoryEvent);
         log.info("produced data for order service");
     }

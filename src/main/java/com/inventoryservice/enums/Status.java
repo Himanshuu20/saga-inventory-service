@@ -1,8 +1,11 @@
 package com.inventoryservice.enums;
 
-public enum InventoryStatus {
+public enum Status {
     OUT_OF_STOCK,
     INVENTORY_UPDATED,
     LIMIT_EXCEEDED,
-    PAYMENT_FAILED
+    PAYMENT_FAILED,
+    CREATED,
+    PENDING,
+    FAILED
 }
