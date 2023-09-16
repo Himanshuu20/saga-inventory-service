@@ -7,5 +7,6 @@ public enum Status {
     PAYMENT_FAILED,
     CREATED,
     PENDING,
-    FAILED
+    FAILED,
+    ORDER_FAILED
 }

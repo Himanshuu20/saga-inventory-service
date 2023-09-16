@@ -117,6 +117,14 @@ public class InventoryServiceImpl implements InventoryService{
             throw new OutOfStockException("Item is not present in the inventory.");
         }
 
+        if(!item.isEmpty() && item.get().getQuantity() <= 0){
+            log.info("Item is not present in the inventory");
+            inventoryEvent.setStatus(Status.OUT_OF_STOCK);
+            inventoryEvent.setOrderEvent(consumeOrderEventObject.getOrderEvent());
+            kafkaTemplate.send("reversed-orders",inventoryEvent);
+            throw new OutOfStockException("Item is not present in the inventory.");
+        }
+
         if(consumeOrderEventObject.getOrderEvent().getQuantity() > item.get().getQuantity()){
             log.info("Full quantity is not available in the inventory, number of unit present are {} ", item.get().getQuantity());
             inventoryEvent.setStatus(Status.LIMIT_EXCEEDED);
